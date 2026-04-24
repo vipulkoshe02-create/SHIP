@@ -1,0 +1,640 @@
+import * as THREE from 'three';
+import * as Ocean from './ocean/Ocean.js';
+// import OceanMaterial from './materials/OceanMaterial.js'; // add at top
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import './style.css';
+
+
+// Scene
+const scene = new THREE.Scene();
+
+Ocean.Start();
+scene.add(Ocean.surface);
+
+// Sky HDR file
+const rgbeLoader = new RGBELoader();
+
+rgbeLoader.load('/citrus_orchard_road_puresky_4k.hdr', (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+
+  // 🌤 Sky background
+  scene.background = texture;
+
+  // 🌍 Realistic lighting
+  scene.environment = texture;
+  scene.environmentIntensity = 1;
+});
+
+// Camera
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+
+camera.updateProjectionMatrix();
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// Renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+renderer.setSize(window.innerWidth, window.innerHeight); // makes it full screen
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // makes it sharp
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.5; // reduce brightness (try 0.4–0.8)
+
+document.body.appendChild(renderer.domElement);
+
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// Load Ship
+let ship;
+let propeller;
+let propellerSpeed = 0;
+let containersGroup = [];
+let containerStacks = [];
+let activeStack = null;
+let isContainerMode = false;
+
+
+const loader = new GLTFLoader();
+
+loader.load(
+  '/ship.glb',
+
+  (gltf) => {
+    const rawShip = gltf.scene;
+
+    ship = new THREE.Group();
+    ship.add(rawShip);
+    rawShip.rotation.y = -Math.PI / 2;
+    ship.rotation.set(0, 0, 0);
+    ship.position.set(0, 0, 0);
+
+    scene.add(ship);
+
+    rawShip.traverse((child) => {
+
+      if (child.isMesh) {
+
+        const name = child.name;
+
+        // 🎯 Detect propeller
+        if (name.toLowerCase().includes("prop")) {
+          propeller = child;
+        }
+
+        // 📦 Detect container groups
+        if (name.includes("Containers_1") || name.includes("Containers_2")) {
+          containersGroup.push(child);
+        }
+
+        // 📦 Detect individual stacks
+        if (name.includes("Stack")) {
+          containerStacks.push(child);
+        }
+      }
+    });
+
+    const box = new THREE.Box3().setFromObject(ship);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
+
+    camera.position.copy(center);
+    camera.position.x = -30;
+    camera.position.y = 7;
+    camera.position.z = 38;
+
+    camera.lookAt(center);
+  },
+
+);
+
+
+// 📊 Data
+let speedKnots = 11;
+let speed = speedKnots * 1.852; // km/h
+let fuel = 100;
+// let distanceRemaining;
+let cargoWeight = 200;
+const TIME_SCALE = 0.01; // slow down simulation
+
+// 🎥 Camera Views
+function setView(type) {
+  if (!ship) return;
+  const p = ship.position;
+
+  if (type === "front") {
+    camera.up.set(0, 1, 0);
+    camera.position.set(p.x + 58, p.y + 10, p.z + 1.5);
+    camera.lookAt(p.x, p.y, p.z);
+  }
+  if (type === "back") camera.position.set(p.x - 15, p.y + 5, p.z);
+  if (type === "left") camera.position.set(p.x, p.y + 5, p.z - 15);
+  if (type === "right") camera.position.set(p.x - 5, p.y + 5, p.z + 35);
+  if (type === "top") {
+    camera.position.set(0, 42, 0);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(0, 0, 0);
+  }
+
+  camera.lookAt(p);
+}
+
+// 🎛 UI Buttons
+document.getElementById("front").onclick = () => setView("front");
+document.getElementById("back").onclick = () => setView("back");
+document.getElementById("left").onclick = () => setView("left");
+document.getElementById("right").onclick = () => setView("right");
+document.getElementById("top").onclick = () => setView("top");
+
+// 🔍 Transparency
+document.getElementById("containers").onclick = () => {
+
+  if (!ship) return;
+
+  isContainerMode = true;
+
+  // ❌ Hide only dashboard + ui
+  document.querySelector(".dashboard").style.display = "none";
+  document.getElementById("ui").style.display = "none";
+
+  // ✅ Show normal button
+  document.getElementById("normal").style.display = "block";
+
+  // 🎥 Lock camera (zoom only)
+  controls.enableRotate = false;
+  controls.enablePan = false;
+  controls.enableZoom = true;
+
+  // 🎯 Fixed view
+  // 📦 Move camera slightly LEFT so ship appears RIGHT
+  camera.position.set(0, 20, 35);
+
+  // 🎯 Look slightly left of ship center
+  controls.target.set(
+    ship.position.x,
+    ship.position.y,
+    ship.position.z - 50,
+  );
+
+  controls.update();
+
+
+  // 🔍 Transparency
+  ship.traverse(o => {
+    if (o.isMesh) {
+      if (o.name.includes("Containers")) return;
+
+      o.material.transparent = true;
+      o.material.opacity = 0.2;
+    }
+  });
+
+};
+
+document.getElementById("normal").onclick = () => {
+
+  if (!ship) return;
+
+  isContainerMode = false;
+
+  // ✅ Show UI again
+  document.querySelector(".dashboard").style.display = "block";
+  document.getElementById("ui").style.display = "block";
+
+  // ❌ Hide normal button
+  document.getElementById("normal").style.display = "none";
+
+  // 🎥 Restore controls
+  controls.enableRotate = true;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+
+  // 🎯 Reset camera
+  camera.position.set(0, 20, 35);
+  camera.lookAt(0, 0, 0);
+
+  // 🚢 Reset ship position properly
+  const box = new THREE.Box3().setFromObject(ship);
+  const size = box.getSize(new THREE.Vector3());
+  ship.position.y = -size.y / 2;
+
+  // 🔁 Restore materials
+  ship.traverse(o => {
+    if (o.isMesh) {
+      o.material.transparent = false;
+      o.material.opacity = 1;
+    }
+  });
+
+};
+
+// 📊 Logic
+
+function updateData() {
+
+  let targetSpeed = speedKnots * 1.852;
+
+  // Smooth adjustment instead of random jump
+  speed += (targetSpeed - speed) * 0.02;
+
+  fuel -= speed * cargoWeight * 0.0000001;
+
+  if (fuel < 0) fuel = 0;
+}
+
+
+function getETA() {
+
+  if (distanceRemaining <= 0) return "Arrived";
+  if (speed <= 0) return "Calculating...";
+
+  const totalHours = distanceRemaining / speed;
+
+  const days = Math.floor(totalHours / 24);
+  const hours = Math.floor(totalHours % 24);
+  const minutes = Math.floor((totalHours % 1) * 60);
+
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
+function getCO2() {
+  return (cargoWeight * speed * 0.05).toFixed(2);
+}
+
+function getSafeLimit() {
+  return cargoWeight * 15 * 0.05;
+}
+
+function getCarbonIndex() {
+  const co2 = cargoWeight * speed * 0.05;
+  const limit = getSafeLimit();
+
+  if (limit === 0) return 0;
+
+  return co2 / limit;
+}
+
+
+function getCarbonStatus() {
+  const index = getCarbonIndex();
+
+  if (index <= 1.4) return "🟢 Safe";
+  if (index <= 1.8) return "🟡 Moderate";
+  return "🔴 Unsafe";
+}
+
+function getPropellerTemperature() {
+  const normalizedSpeed = Math.abs(propellerSpeed);
+
+  const temp = 20 + normalizedSpeed * 80; // stronger effect
+
+  return Math.min(temp, 120);
+}
+
+function updateTempBar(temp) {
+  const indicator = document.getElementById("tempIndicator");
+  const label = document.getElementById("tempValue");
+
+  const maxTemp = 120;
+  const percent = temp / maxTemp;
+
+  const barHeight = 220;
+  const y = (1 - percent) * barHeight;
+
+  indicator.style.transform = `translateY(${y}px)`;
+
+  label.innerText = `${temp.toFixed(1)}°C`;
+}
+
+function updateRing(percent) {
+  const circle = document.querySelector(".ring-fill");
+  const radius = 60;
+  const circumference = 2 * Math.PI * radius;
+
+  const offset = circumference - (percent / 100) * circumference;
+  circle.style.strokeDashoffset = offset;
+}
+
+const stackColors = {
+  "Containers_1Stack1": 0xff0000, // red
+  "Containers_1Stack2": 0x00ff00, // green
+  "Containers_1Stack3": 0x0000ff, // blue
+  "Containers_1Stack4": 0xffff00, // yellow
+  "Containers_1Stack5": 0xff00ff  // purple
+};
+
+const stackData = {
+  "Containers_1Stack1": {
+    fill: "17.2%",
+    temp: "1.6°C",
+    weight: "50 tons",
+    containers: 120,
+    status: "Normal"
+  },
+  "Containers_1Stack2": {
+    fill: "45%",
+    temp: "3.2°C",
+    weight: "80 tons",
+    containers: 200,
+    status: "Moderate"
+  },
+  "Containers_1Stack3": {
+    fill: "72%",
+    temp: "5.1°C",
+    weight: "110 tons",
+    containers: 300,
+    status: "High Load"
+  },
+  "Containers_1Stack4": {
+    fill: "30%",
+    temp: "2.0°C",
+    weight: "60 tons",
+    containers: 150,
+    status: "Normal"
+  },
+  "Containers_1Stack5": {
+    fill: "90%",
+    temp: "6.5°C",
+    weight: "140 tons",
+    containers: 400,
+    status: "Critical"
+  }
+};
+
+window.addEventListener("click", (event) => {
+
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+
+  if (!ship) return;
+
+  const intersects = raycaster.intersectObject(ship, true);
+
+  if (intersects.length > 0) {
+
+    const clicked = intersects[0].object;
+
+    // ✅ Propeller click (keep this working)
+    if (
+      propeller &&
+      (clicked === propeller || propeller.children.includes(clicked))
+    ) {
+      const temp = getPropellerTemperature();
+      const box = document.getElementById("tempBarContainer");
+      box.classList.remove("hidden");
+      updateTempBar(temp);
+      document.getElementById("stackInfo").classList.add("hidden");
+      return;
+    }
+
+    // ✅ Container stack click
+    if (isContainerMode && clicked.name.includes("Stack")) {
+      let selectedStack = clicked;
+      activeStack = selectedStack;
+      // 🔄 Reset all stacks
+      containerStacks.forEach(stack => {
+        stack.traverse(child => {
+          if (child.isMesh && child.material.emissive) {
+            child.material.emissive.set(0x000000);
+            child.material.emissiveIntensity = 0;
+          }
+        });
+      });
+
+      // // 🎯 Find the correct stack object
+      // let selectedStack = clicked;
+
+      const data = stackData[selectedStack.name];
+
+      if (data) {
+        document.getElementById("stackInfo").classList.remove("hidden");
+        document.getElementById("stackTitle").innerText = selectedStack.name;
+        document.getElementById("fillCircle").innerText = data.fill;
+        document.getElementById("stackTemp").innerText = data.temp;
+        document.getElementById("stackWeight").innerText = data.weight;
+        document.getElementById("stackCount").innerText = data.containers;
+        document.getElementById("stackStatus").innerText = data.status;
+
+        // 🔵 animate ring
+        const percent = parseFloat(data.fill);
+        updateRing(percent);
+
+        // 🌈 dynamic color based on status
+        const ring = document.querySelector(".ring-fill");
+
+        if (data.status === "Critical") ring.style.stroke = "red";
+        else if (data.status === "High Load") ring.style.stroke = "orange";
+        else if (data.status === "Moderate") ring.style.stroke = "yellow";
+        else ring.style.stroke = "#00eaff";
+      }
+
+      // 🎨 Get color
+      const color = stackColors[selectedStack.name] || 0xffffff;
+
+      // 🌟 Apply color to entire stack
+      selectedStack.traverse(child => {
+        if (child.isMesh) {
+
+          // ⚠️ ensure unique material (VERY IMPORTANT)
+          child.material = child.material.clone();
+
+          if (!child.material.emissive) {
+            child.material.emissive = new THREE.Color(0x000000);
+          }
+
+          child.material.emissive.set(color);
+          child.material.emissiveIntensity = 1.5;
+        }
+      });
+
+      console.log("Selected stack:", selectedStack.name);
+      return;
+    }
+  }
+
+  // ❌ Click outside → reset everything
+  containerStacks.forEach(stack => {
+    stack.traverse(child => {
+      if (child.isMesh && child.material.emissive) {
+        child.material.emissive.set(0x000000);
+        child.material.emissiveIntensity = 0;
+      }
+    });
+  });
+
+  // 🔻 Hide BOTH UI panels
+  document.getElementById("tempBarContainer").classList.add("hidden");
+  document.getElementById("stackInfo").classList.add("hidden");
+
+});
+
+function getStackTopPosition(obj, camera) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const top = new THREE.Vector3();
+
+  // get top-center of bounding box
+  top.set(
+    (box.min.x + box.max.x) / 2,
+    box.max.y, // 🔥 TOP
+    (box.min.z + box.max.z) / 2
+  );
+
+  // project to screen
+  top.project(camera);
+
+  return {
+    x: (top.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-top.y * 0.5 + 0.5) * window.innerHeight
+  };
+}
+
+// 🔁 Animation
+let lastTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  let currentTime = performance.now();
+  let deltaTime = (currentTime - lastTime) / 1000;
+  lastTime = currentTime;
+  
+  const t = Date.now() * 0.001;
+  
+  
+  
+  // 🚢 Ship floating
+  if (ship) {
+    ship.position.y = -2.8 + Math.sin(t * 2) * 0.3;
+  }
+
+  updateData();              // update speed first
+  Ocean.Update(camera);
+  
+  if (propeller) {
+    const targetSpeed = speedKnots * 1.852
+    propellerSpeed = targetSpeed * 1; // increase multiplier for visibility
+    propeller.rotation.z += propellerSpeed * deltaTime;
+  }
+  // 📊 Update data
+  
+  updateDistance(deltaTime); // update (reduce) distance
+  
+  checkCarbonAlert();
+  
+  // 📊 UI update
+  document.getElementById("speed").innerText = speedKnots.toFixed(1) + " kn";
+  document.getElementById("fuel").innerText = fuel.toFixed(1) + " %";
+  document.getElementById("distance").innerText = distanceRemaining.toFixed(2) + " km";
+  document.getElementById("ETA").innerText = getETA();
+  document.getElementById("co2").innerText = getCO2() + " tons";
+  document.getElementById("carbonIndex").innerText = getCarbonIndex().toFixed(2);
+  document.getElementById("cargo").innerText = cargoWeight + " tons";
+  
+  const statusEl = document.getElementById("carbonStatus");
+  const status = getCarbonStatus();
+  
+  
+  if (status.includes("Safe")) statusEl.style.color = "green";
+  else if (status.includes("Moderate")) statusEl.style.color = "orange";
+  else statusEl.style.color = "red";
+  
+  statusEl.innerText = status;
+  
+  if (status.includes("Safe")) statusEl.style.color = "green";
+  else if (status.includes("Moderate")) statusEl.style.color = "orange";
+  else statusEl.style.color = "red";
+  
+  const box = document.getElementById("tempBarContainer");
+  
+  if (!box.classList.contains("hidden")) {
+    const temp = getPropellerTemperature();
+    updateTempBar(temp);
+  }
+  
+  
+  const panel = document.getElementById("stackInfo");
+  
+  if (activeStack && !panel.classList.contains("hidden")) {
+    const pos = getStackTopPosition(activeStack, camera);
+    // Offset to appear ABOVE + SIDE
+    panel.style.left = pos.x + 20 + "px";   // slight right
+    panel.style.top = pos.y - 200 + "px";   // above stack
+  }
+  
+  
+  controls.update();
+  if (Ocean.surface.material.uniforms._Time) {
+  Ocean.surface.material.uniforms._Time.value += deltaTime;
+}
+  
+  renderer.render(scene, camera);
+}
+const TOTAL_DISTANCE = 6100;
+let distanceRemaining = TOTAL_DISTANCE;
+
+function updateDistance(deltaTime) {
+
+  const scaledTime = deltaTime * TIME_SCALE;
+
+  const distanceTravelled = speed * scaledTime;
+
+  distanceRemaining -= distanceTravelled;
+
+  if (distanceRemaining < 0) distanceRemaining = 0;
+
+  document.getElementById("distance").innerText =
+    distanceRemaining.toFixed(2) + " km";
+
+
+
+}
+let lastStatus = "";
+
+function checkCarbonAlert() {
+  const status = getCarbonStatus();
+
+  if (status !== lastStatus) {
+    lastStatus = status;
+
+    if (status.includes("Safe")) {
+      showNotification("🟢 Emissions within safe limits", "safe");
+    }
+    else if (status.includes("Moderate")) {
+      showNotification("🟡 Emissions rising — monitor speed", "warn");
+    }
+    else {
+      showNotification("🔴 Carbon limit exceeded! Reduce speed!", "danger");
+    }
+  }
+}
+
+animate();
+
+const speedSlider = document.getElementById("speedControl");
+const speedValue = document.getElementById("speedValue");
+
+// initial sync
+speedKnots = parseFloat(speedSlider.value);
+
+speedSlider.oninput = (e) => {
+  speedKnots = parseFloat(e.target.value);
+  speedValue.innerText = speedKnots.toFixed(1) + " kn";
+};
+
+// =============== co2 emmision notification============
+function showNotification(message, type = "safe") {
+  const box = document.getElementById("notification");
+
+  box.innerText = message;
+  box.className = "notification show " + type;
+
+  setTimeout(() => {
+    box.classList.remove("show");
+  }, 5000);
+}
