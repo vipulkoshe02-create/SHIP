@@ -1,0 +1,35 @@
+import { BufferAttribute, BufferGeometry, Mesh } from "three";
+import * as OceanMaterial from "../materials/OceanMaterial.js";
+
+export const surface = new Mesh();
+
+export function Start() {
+
+    OceanMaterial.Start();
+
+    const size = 1500;
+
+    const vertices = new Float32Array([
+        -size, 0, -size,
+         size, 0, -size,
+        -size, 0,  size,
+         size, 0,  size
+    ]);
+
+    const indices = [
+        2, 3, 0,
+        3, 1, 0
+    ];
+
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+
+    surface.geometry = geometry;
+    surface.material = OceanMaterial.surface;
+}
+
+export function Update(camera) {
+    // Infinite ocean effect
+    surface.position.set(camera.position.x, 0, camera.position.z);
+}
