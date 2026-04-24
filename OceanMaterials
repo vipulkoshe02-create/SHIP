@@ -1,0 +1,40 @@
+import {
+  DoubleSide,
+  RepeatWrapping,
+  ShaderMaterial,
+  TextureLoader,
+  Uniform
+} from "three";
+
+import * as OceanShaders from "../../shaders/OceanShaders.js";
+
+// ✅ ADD IT HERE (top-level, outside functions)
+const normalMap1 = new Uniform(
+  new TextureLoader().load("/images/waterNormal1.png")
+);
+normalMap1.value.wrapS = RepeatWrapping;
+normalMap1.value.wrapT = RepeatWrapping;
+
+const normalMap2 = new Uniform(
+  new TextureLoader().load("/images/waterNormal2.png")
+);
+normalMap2.value.wrapS = RepeatWrapping;
+normalMap2.value.wrapT = RepeatWrapping;
+
+// Material
+export const surface = new ShaderMaterial();
+
+export function Start() {
+  surface.vertexShader = OceanShaders.surfaceVertex;
+  surface.fragmentShader = OceanShaders.surfaceFragment;
+
+  surface.side = DoubleSide;
+  surface.transparent = true;
+
+  // ✅ USE THEM HERE
+  surface.uniforms = {
+    _Time: { value: 0 },
+    _NormalMap1: normalMap1,
+    _NormalMap2: normalMap2
+  };
+}
