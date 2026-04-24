@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Digital Twin Ship</title>
+</head>
+
+<body>
+
+  <div id="ui">
+    <h3>Ship View</h3>
+    
+    <button id="front">Front</button><br>
+    <button id="back">Back</button> <br>
+    <button id="left">Left</button><br>
+    <button id="right">Right</button><br>
+    <button id="top">Top</button><br>
+    <button id="containers">Containers View</button><br>
+    
+  </div>
+  <button id="normal" style="display:none;">Normal View</button>
+
+  <div id="notification" class="notification"></div>
+<div id="tempBarContainer" class="temp-bar hidden">
+  <div class="temp-label" id="tempValue">0°C</div>
+
+  <div class="bar">
+    <div class="indicator" id="tempIndicator"></div>
+    <div class="arrow" id="tempArrow"></div>
+  </div>
+</div>
+  <div class="dashboard">
+    
+    <h2>Ship Dashboard</h2>
+
+
+    <div class="card">
+      <span>Speed</span>
+      <h3 id="speed">-- knots</h3>
+    </div>
+
+    <div class="card">
+      <span>Fuel Level</span>
+      <h3 id="fuel">-- %</h3>
+    </div>
+
+    <div class="card">
+      <span>Distance Remaining</span>
+      <h3 id="distance">-- km</h3>
+    </div>
+
+    <div class="card">
+      <span>ETA</span>
+      <h3 id="ETA">-- hrs</h3>
+    </div>
+
+    <div class="card">
+      <span>Cargo Weight</span>
+      <h3 id="cargo">-- tons</h3>
+    </div>
+
+    <div class="card">
+      <span>CO2 Emission</span>
+      <h3 id="co2">-- tons</h3>
+    </div>
+
+    <div class="card">
+      <span>Carbon Index</span>
+      <h3 id="carbonIndex">--</h3>
+    </div>
+
+    <div class="card">
+      <span>Carbon Emission Status</span>
+      <h3 id="carbonStatus">--</h3>
+    </div>
+
+    <div class="card">
+      <span>Speed Control</span>
+      <input type="range" id="speedControl" min="5" max="20" step="0.1" value="11">
+      <h3 id="speedValue">11 kn</h3>
+    </div>
+  </div>
+
+<div id="stackInfo" class="hud hidden">
+
+  <div class="hud-header">
+    <span id="stackTitle">STACK</span>
+  </div>
+
+  <!-- 🔵 Circular Progress -->
+  <div class="circle-wrap">
+    <svg class="progress-ring" width="140" height="140">
+      <circle class="ring-bg" cx="70" cy="70" r="60"/>
+      <circle class="ring-fill" cx="70" cy="70" r="60"/>
+    </svg>
+    <div class="circle-text" id="fillCircle">0%</div>
+  </div>
+
+  <!-- 📊 Data -->
+  <div class="hud-data">
+    <div><span>Temp</span> <b id="stackTemp">--</b></div>
+    <div><span>Weight</span> <b id="stackWeight">--</b></div>
+    <div><span>Containers</span> <b id="stackCount">--</b></div>
+    <div><span>Status</span> <b id="stackStatus">--</b></div>
+  </div>
+
+</div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
